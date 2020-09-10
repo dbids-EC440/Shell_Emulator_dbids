@@ -2,8 +2,8 @@ GCC = gcc
 
 OBJS = myshell
 
-myshell:
+myshell: myshell.c
 	$(GCC) myshell.c -o $(OBJS)	
 
 clean: 
-	rm $(OBJS) myshell
+	rm $(OBJS)
