@@ -49,15 +49,14 @@ int main(int argc, char *argv[] )
                 lineChar = line[j];
             }
             tempstr[j] = '\0';
-            *parameters[i] = tempstr;
+            parameters[i] = tempstr;
         }
-
         parameters[space+1] = NULL;
 	
-	for (int i = 0; i < space+2; i++)
-	{
-		printf(parameters[i]);
-	}
+        for (int i = 0; i < space+2; i++)
+        {
+            printf(parameters[i]);
+        }
 
         /*parameters[0] = "ls";
         parameters[1] = ".";
