@@ -1,4 +1,4 @@
-GCC = gcc
+GCC = gcc -g
 
 OBJS = myshell
 
