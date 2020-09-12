@@ -2,67 +2,77 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 #define TRUE 1
-#define STRING_SIZE 32 //maximum length of strings
-#define RWBYTES 8  //maximum number of bytes to be read or written
-#define LINE_LENGTH 32 //maximum length of input lines
+#define STRING_SIZE 1024 //maximum length of strings
+#define READ_BYTES 1024  //maximum number of bytes to be read or written
 
 int main(int argc, char *argv[] )  
 {
+    //Declare gdparameters initially
+    char** parameters;
+    bool firstIteration = true;
+
+    //Loop for shell
     while (TRUE)
     {
         /*.......................PROMPT.......................*/
-        int writeBytes = write(1, "myshell$", RWBYTES);
-        //printf("\nwrote with %d bytes\n", writeBytes);
+        int writeBytes = write(1, "myshell$", 8);
 
         /*.......................READ.LINE.......................*/
-        char line[LINE_LENGTH];
-        int commandBytes = read(0, line, RWBYTES);
-        //printf(line);
+        char line[READ_BYTES];
+        int commandBytes = read(0, line, READ_BYTES);
 
         /*.......................PARSE.LINE.......................*/
         //Read the line to find the number of space characters
-        char lineChar = line[0];
         int space;
-        int l = 0;
-        while (lineChar != '\0')
+        int lNum = 0;
+        while (line[lNum] != '\0')
         {
-            space += (lineChar == ' ') ? 1 : 0;
-            l++;
-            lineChar = line[l];
+            space += (line[lNum] == ' ') ? 1 : 0;
+            lNum++;
         }
-           
-        //Declare parameters array
-        char* parameters[space+2];
         
-        //Set each of the entries to one of the parameters, with the first being the command itself
-        lineChar = line[0];
-        for (int i = 0; i < space+1; i++)
+        //Split up the line into different strings
+        char tempstr[space+2][STRING_SIZE];
+        int i;
+        lNum = 0;
+        for (i = 0; i < space+1; i++)
         {
-            int j = 0;
-            char tempstr[STRING_SIZE];
-            while (lineChar != '\0' && lineChar != ' ')
+            int tNum = 0;
+            while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n')
             {
-                tempstr[j] = lineChar;
-                j++;
-                lineChar = line[j];
+                tempstr[i][tNum] = line[lNum];
+                tNum++;
+                lNum++;
             }
-            tempstr[j] = '\0';
-            parameters[i] = tempstr;
-        }
-        parameters[space+1] = NULL;
-	
-        for (int i = 0; i < space+2; i++)
-        {
-            printf(parameters[i]);
+            tempstr[i][tNum] = '\0';
+            lNum++;
         }
 
-        /*parameters[0] = "ls";
-        parameters[1] = ".";
-        parameters[2] = NULL;*/
+        //Declare parameters array dynamically and set equal to tempstr
+        int parameterSize = ((space+2) * sizeof(char*));
+        if (firstIteration)
+        {
+            parameters = malloc(parameterSize);
+            firstIteration = false;
+        }
+        else
+        {
+            parameters = realloc(parameters,parameterSize);
+        }
+        
+        for (i = 0; i < space+2; i++)
+        {
+            parameters[i] = malloc(STRING_SIZE*sizeof(char));
+            parameters[i] = tempstr[i];
+        }
+        parameters[space+1] = NULL;
+
+        //Get command from the parameters
         char command[STRING_SIZE] = "/bin/ls";
-        //printf(command);
 
         /*.......................FORK.......................*/
         int status;
@@ -70,13 +80,14 @@ int main(int argc, char *argv[] )
         {
             //Parent Code
             waitpid(-1, &status, 0);
-            printf("%d", status);
         }
         else
         {
             //Child Code
             execve(command, parameters, NULL);
-        }
-        
+        } 
     }
+
+    //Free the dynamic memory
+    free(parameters);
 }
