@@ -5,29 +5,41 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#define TRUE 1
-#define STRING_SIZE 1024 //maximum length of strings
-#define READ_BYTES 1024  //maximum number of bytes to be read or written
+#define TOKEN_SIZE 32 //maximum length of tokens
+#define INPUT_SIZE 512 //maximum length of inputs
 
-int main(int argc, char *argv[] )  
+int main(int argc, char *argv[])  
 {
     //Declare gdparameters initially
     char** parameters;
     bool firstIteration = true;
+    bool endShell = false;
+    int space = 0;
 
     //Loop for shell
-    while (TRUE)
+    while (!endShell)
     {
         /*.......................PROMPT.......................*/
-        int writeBytes = write(1, "myshell$", 8);
+        int writeBytes;
+        if (argc == 1)
+            writeBytes = write(1, "myshell$", 8);
+        else if (argv[1] != "-n")
+            write(3, "ERROR: command line argument not alowed", 39);
 
         /*.......................READ.LINE.......................*/
-        char line[READ_BYTES];
-        int commandBytes = read(0, line, READ_BYTES);
+        char line[INPUT_SIZE];
+        int commandBytes = read(0, line, INPUT_SIZE);
+
+        //Check for ctrl+D input
+        if (line == "ctril+D")
+        {
+            endShell = true;
+            break;
+        }
 
         /*.......................PARSE.LINE.......................*/
         //Read the line to find the number of space characters
-        int space;
+        space = 0;
         int lNum = 0;
         while (line[lNum] != '\0')
         {
@@ -36,10 +48,10 @@ int main(int argc, char *argv[] )
         }
         
         //Split up the line into different strings
-        char tempstr[space+2][STRING_SIZE];
+        char tempstr[space+1][TOKEN_SIZE];
         int i;
         lNum = 0;
-        for (i = 0; i < space+1; i++)
+        for (i = 0; i < space; i++)
         {
             int tNum = 0;
             while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n')
@@ -53,7 +65,7 @@ int main(int argc, char *argv[] )
         }
 
         //Declare parameters array dynamically and set equal to tempstr
-        int parameterSize = ((space+2) * sizeof(char*));
+        int parameterSize = ((space+1) * sizeof(char*));
         if (firstIteration)
         {
             parameters = malloc(parameterSize);
@@ -63,16 +75,18 @@ int main(int argc, char *argv[] )
         {
             parameters = realloc(parameters,parameterSize);
         }
-        
-        for (i = 0; i < space+2; i++)
+        for (i = 0; i < space+1; i++)
         {
-            parameters[i] = malloc(STRING_SIZE*sizeof(char));
+            parameters[i] = malloc(TOKEN_SIZE*sizeof(char));
             parameters[i] = tempstr[i];
         }
         parameters[space+1] = NULL;
 
         //Get command from the parameters
-        char command[STRING_SIZE] = "/bin/ls";
+        char command[TOKEN_SIZE] = "/bin/ls";
+
+        while ((getchar()) != '\n');
+        fflush(stdout);
 
         /*.......................FORK.......................*/
         int status;
@@ -80,6 +94,7 @@ int main(int argc, char *argv[] )
         {
             //Parent Code
             waitpid(-1, &status, 0);
+            printf("The status was: %d", status);
         }
         else
         {
