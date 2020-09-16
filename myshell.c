@@ -16,9 +16,10 @@ char* getCommand(char** parameters, bool firstIteration);
 int main(int argc, char *argv[])  
 {
     //Declare parameters initially
-    char** parameters;
     bool firstIteration = true;
     bool endShell = false;
+    char** parameters = NULL;
+    char* command = NULL;
 
     //Loop for shell
     while (TRUE)
@@ -40,28 +41,17 @@ int main(int argc, char *argv[])
         int commandBytes = read(0, line, INPUT_SIZE);
 
         //Check for ctrl+D input
-        int i;
-        /*while(line[i] != '\n')
-        {
-            if (line[i] == 4) 
-            {
-                endShell = true;
-            }
-            i++;
-        }*/
-        if (commandBytes == 0) 
-        {
-            break;
-        }
+        //If the line is blank them using the EOT operator(ctrl + D) should result in a line which is zero bytes long
+        if (commandBytes == 0) break;
 
         /*.......................PARSE.LINE.......................*/
         //Parse the parameters from the line
         int space = 0;
-        char** parameters = getParameters(line, space, firstIteration, parameters);
+        parameters = getParameters(line, space, firstIteration, parameters);
+        printf("\nparameters[0] : %s\n", command);
 
         //Get command from the parameters
-        char* command = getCommand(parameters, firstIteration);
-
+        command = getCommand(parameters, firstIteration);
         //Flush the output buffer for saftey
         fflush(stdout);
 
@@ -78,13 +68,15 @@ int main(int argc, char *argv[])
             //Child Code
             execve(command, parameters, NULL);
         } 
-    }
 
-    //Free the dynamic memory
-    if (!firstIteration)
-    {
-        free(parameters);
-    }   
+        //Free the dynamic memory
+        if (!firstIteration)
+        {
+            free(parameters);
+        }
+    }
+    
+    return 0;   
 }
 
 
@@ -134,40 +126,70 @@ char** getParameters(char* line, int space, bool firstIteration, char** paramete
     }
     parameters[space+1] = NULL;
 
+    printf("parameters within getParameters: %s\n", parameters[0]);
     return parameters;
 }
 
 char* getCommand(char** parameters, bool firstIteration)
 {
-    int i;
-    long int li;
-    if (firstIteration)
+    char* command;
+    static char** pathOptions;
+    int numOptions = 0;
+
+    //Set up command dynamically
+    command = malloc(TOKEN_SIZE*sizeof(char));
+    strcpy(command, parameters[0]);
+    printf("%s\n", command);
+
+    //Get all the possible enviornment variable paths
+    const char* paths = getenv("PATH");
+    printf("path : %s\n", paths);
+    printf("length : %ld\n", strlen(paths));
+
+    //Figure out the number of different paths
+    for (long int li = 0; li < (strlen(paths)+1); li++)
     {
-        //Get all the possible enviornment variable paths
-        const char* paths = getenv("PATH");
-        printf("path : %s\n", paths);
-        printf("length : %ld\n", strlen(paths));
+        numOptions += (paths[li] == ':') ? 1 : 0;
+    }
     
-        //Figure out the number of 
-        static int colon = 0;
-        for (li = 0; li < strlen(paths); li++)
-        {
-            colon += (paths[li] == ':') ? 1 : 0;
-            if (paths[li] == ':')
-            {
-                printf("%c,",paths[li]);
-                colon++;
-                printf("%d", colon);
-            }
-        }
-        printf("colon : %d\n", paths[li]);
+    //Dynamically declare pathOptions variable to hold them
+    int pathSize = ((numOptions + 1) * sizeof(char*));
+    pathOptions = malloc(pathSize);
+    for (int i = 0; i < numOptions+1; i++)
+    {
+        pathOptions[i] = malloc(TOKEN_SIZE*sizeof(char));
     }
 
-        char temp_command[TOKEN_SIZE] = "/bin/";
-        printf("%s\n", parameters[0]); //this is messed up
-        strcat(temp_command, parameters[0]);
-        char* command = temp_command;
-        printf("%s %s\n",temp_command, command);
+    //Split up the paths char into different path options
+    numOptions = 0;
+    char tempPath[strlen(paths)];
+    int tp = 0;
+    for (long int li = 0; li < (strlen(paths)+1); li++)
+    {
+        if ((paths[li] == ':') || (paths[li] == '\0'))
+        {
+            pathOptions[numOptions] = tempPath;
+            numOptions++;
+            memset(tempPath, 0, sizeof(tempPath)); //clears the tempPath variable
+            tp = 0;
+        }
+        else
+        {
+            tempPath[tp] = paths[li];
+            tp++;
+        }
+    }
+
+    //Concatenate each path option with the parameter
+    printf("parameters[0] : %s\n", command);
+
+    /*
+    char temp_command[TOKEN_SIZE] = "/bin/";
     
+    strcat(temp_command, parameters[0]);
+    command = temp_command;
+    printf("%s %s\n",temp_command, command);
+    */
+
     return command;
 }
