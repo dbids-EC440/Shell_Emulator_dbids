@@ -23,7 +23,7 @@ int main(int argc, char *argv[])
     char** parameters = NULL;
     char command[TOKEN_SIZE];
     int numCommands = 0;
-    char in_filename[TOKEN_SIZE];
+    char in_filename[TOKEN_SIZE] = "test_file";//(char *)malloc(TOKEN_SIZE*sizeof(char));
     char out_filename[TOKEN_SIZE];
 
     //These are bools that I use to detect the presence of the meta characters
@@ -169,14 +169,13 @@ int main(int argc, char *argv[])
                     while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
                     && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '>')
                     {
-                        in_filename[fNum] = line[lNum];
+                        *(in_filename+fNum) = *(line+lNum);
                         lNum++;
                         fNum++;
                     }
-                    printf("%s", in_filename);
 
                     //Then check for more meta characters
-                    if(line[lNum] == '\0' && line[lNum] == '\n')
+                    if(line[lNum] == '\0' || line[lNum] == '\n')
                     {
                         moreMeta = false;
                     }
@@ -215,7 +214,6 @@ int main(int argc, char *argv[])
         {
             parameters[i] = malloc(TOKEN_SIZE*sizeof(char));
             parameters[i] = tempstr[i];
-            printf("%s\n", parameters[i]);
         }
         parameters[space+1] = NULL;
 
@@ -228,7 +226,7 @@ int main(int argc, char *argv[])
         /*.......................FORK.......................*/
         int status;
         int fd[2];
-        char in_filename[] = "ls_test";
+        //char in_filename[] = "ls_test";
         char out_filename[] = "fake_file";
         if (fork()!=0)
         {
