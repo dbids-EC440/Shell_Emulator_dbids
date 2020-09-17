@@ -7,6 +7,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #define TRUE 1
 #define TOKEN_SIZE 32 //maximum length of tokens
@@ -23,7 +24,7 @@ int main(int argc, char *argv[])
     char** parameters = NULL;
     char command[TOKEN_SIZE];
     int numCommands = 0;
-    char in_filename[TOKEN_SIZE] = "test_file";//(char *)malloc(TOKEN_SIZE*sizeof(char));
+    char in_filename[TOKEN_SIZE];//(char *)malloc(TOKEN_SIZE*sizeof(char));
     char out_filename[TOKEN_SIZE];
 
     //These are bools that I use to detect the presence of the meta characters
@@ -56,8 +57,13 @@ int main(int argc, char *argv[])
           result in a line which is zero bytes long*/
         if (commandBytes == 0) 
         {
-            writeBytes = write(STDOUT, "\n", 1);
+            write(STDOUT, "\n", 1);
             exit(0);
+        }
+        else if (commandBytes < 0)
+        {
+            write(STDERR, "ERROR: reading from STDIN falied with message: ", 128);
+            write(STDERR,strerror(errno), 128);
         }
 
         /*.......................PARSE.LINE.......................*/
@@ -71,25 +77,29 @@ int main(int argc, char *argv[])
             {
                 case '&':
                     isAM = true;
-                    line[lNum+1] = '\0'; //used to stop counting of spaces
+                    if (line[lNum+1] == ' ')//used to stop counting of spaces
+                        space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;
                 case '|':
                     isVB = true;
-                    line[lNum+1] = '\0';
+                    if (line[lNum+1] == ' ')
+                        space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;
                 case '<':
                     isLT = true;
-                    line[lNum+1] = '\0';
+                    if (line[lNum+1] == ' ')
+                        space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;
                 case '>':
                     isGT = true;
-                    line[lNum+1] = '\0';
+                    if (line[lNum+1] == ' ')
+                        space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;   
@@ -133,7 +143,7 @@ int main(int argc, char *argv[])
                     tNum++;
                     lNum++;           
                 }
-                tempstr[i][tNum] = '\0';
+                tempstr[i][tNum] = '\0';//bad bad boy
                 if (line[lNum] == ' ') lNum++;
             }
 
@@ -158,9 +168,8 @@ int main(int argc, char *argv[])
                     break;
                 case '<':
                     
-                    //First elmimate spaces (or weirdly \0) before the filename
-                    lNum++;
-                    while (line[lNum] == ' ' || line[lNum] == '\0') 
+                    //First elmimate spaces before the filename
+                    while (line[lNum] == ' ' || line[lNum] == '<') 
                         lNum++;
 
                     //Then get the whole filename
@@ -226,8 +235,6 @@ int main(int argc, char *argv[])
         /*.......................FORK.......................*/
         int status;
         int fd[2];
-        //char in_filename[] = "ls_test";
-        char out_filename[] = "fake_file";
         if (fork()!=0)
         {
             //Parent Code
