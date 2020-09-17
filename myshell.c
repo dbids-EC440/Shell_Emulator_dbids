@@ -19,15 +19,16 @@
 int main(int argc, char *argv[])  
 {
     //Declare parameters initially
+    char line[INPUT_SIZE];
     bool firstIteration = true;
     bool endShell = false;
     char** parameters = NULL;
     char command[TOKEN_SIZE];
     int numCommands = 0;
-    char in_filename[TOKEN_SIZE];//(char *)malloc(TOKEN_SIZE*sizeof(char));
-    char out_filename[TOKEN_SIZE];
+    char in_filename[TOKEN_SIZE];
+    char out_filename[TOKEN_SIZE] = "fake_file";
 
-    //These are bools that I use to detect the presence of the meta characters
+    //These are bools that I use to detect presence of the meta characters
     bool isLT = false; //detects <
     bool isGT = false; //detects >
     bool isVB = false; //detects |
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
 
         /*.......................READ.LINE.......................*/
         //Read the line
-        char line[INPUT_SIZE];
+        memset(line, 0, INPUT_SIZE);
         int commandBytes = read(STDIN, line, INPUT_SIZE);
 
         //Check for ctrl+D input
@@ -60,10 +61,11 @@ int main(int argc, char *argv[])
             write(STDOUT, "\n", 1);
             exit(0);
         }
+        //Checks for invalid read just in case
         else if (commandBytes < 0)
         {
-            write(STDERR, "ERROR: reading from STDIN falied with message: ", 128);
-            write(STDERR,strerror(errno), 128);
+            write(STDERR, "ERROR: reading from STDIN falied with message: ", 49);
+            write(STDERR,strerror(errno), sizeof(errno));
         }
 
         /*.......................PARSE.LINE.......................*/
@@ -102,6 +104,8 @@ int main(int argc, char *argv[])
                         space--;
                     if (line[lNum-1] == ' ')
                         space--;
+                    break;
+                default:
                     break;   
             } 
             
@@ -143,7 +147,7 @@ int main(int argc, char *argv[])
                     tNum++;
                     lNum++;           
                 }
-                tempstr[i][tNum] = '\0';//bad bad boy
+                tempstr[i][tNum] = '\0';
                 if (line[lNum] == ' ') lNum++;
             }
 
@@ -169,8 +173,17 @@ int main(int argc, char *argv[])
                 case '<':
                     
                     //First elmimate spaces before the filename
-                    while (line[lNum] == ' ' || line[lNum] == '<') 
+                    if (line[lNum] == '<')
                         lNum++;
+                    while (line[lNum] == ' ') 
+                        lNum++;
+
+                    //Check for double <<
+                    if(line[lNum] == '<')
+                    {
+                        write(STDERR, "ERROR: Only one imput redirection is allowed for a single command\n", 66);
+                        exit(0);
+                    }
 
                     //Then get the whole filename
                     int fNum = 0;
@@ -189,19 +202,19 @@ int main(int argc, char *argv[])
                         moreMeta = false;
                     }
                     else 
-                        //Move to the next non space char
-                        do{
-                            lNum++;
-                        }while (line[lNum] == ' ');
-                    
+                        //Check for second < after the first
                         if(line[lNum] == '<')
                         {
-                            write(STDERR, "ERROR: Only one imput redirection is allowed for a single command", 128);
+                            write(STDERR, "ERROR: Only one imput redirection is allowed for a single command", 65);
                             exit(0);
                         }
+
+                        //Move to the next non space char
+                        while (line[lNum] == ' ')
+                            lNum++;
                     break;
                 case '>':
-
+                    moreMeta = false;
                     break;
                 }
             }
@@ -237,14 +250,20 @@ int main(int argc, char *argv[])
         int fd[2];
         if (fork()!=0)
         {
-            //Parent Code
+            /*..........PARENT..........*/
+            //Wait for the child
             waitpid(-1, &status, 0);
             printf("The status was: %d\n", status);
+
+            //clear the meta char bools
+            if (isAM) isAM = false;
+            if (isLT) isLT = false;
+            if (isGT) isGT = false;
+            if (isVB) isVB = false;
         }
         else
         {
-            //Child Code
-
+            /*..........CHILD..........*/
             //Redirect STDIN if < character was used
             if (isLT)
             {
@@ -253,10 +272,10 @@ int main(int argc, char *argv[])
                 dup2(fd[0], STDIN);
                 close(fd[0]);
             }
-            //Redurect STDOUT if > character was used
+            //Redirect STDOUT if > character was used
             if (isGT)
             {
-                fd[0] = open(out_filename, O_WRONLY);
+                fd[1] = open(out_filename, O_WRONLY);
                 close(STDOUT);
                 dup2(fd[0], STDOUT);
                 close(fd[0]);  
@@ -275,9 +294,6 @@ int main(int argc, char *argv[])
             {
                 execvp(command, parameters);
             }
-            
-            
-
         } 
     }
     //Free the dynamic memory
