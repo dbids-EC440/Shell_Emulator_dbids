@@ -20,6 +20,15 @@ int main(int argc, char *argv[])
     bool endShell = false;
     char** parameters = NULL;
     char command[TOKEN_SIZE];
+    int numCommands = 0;
+    char in_filename[INPUT_SIZE];
+    char out_filename[INPUT_SIZE];
+
+    //These are "flags" that I use to detect the presence of the meta characters
+    bool isLT = false; //detects <
+    bool isGT = false; //detects >
+    bool isVB = false; //detects |
+    bool isAM = false; //detects &
 
     //Loop for shell
     while (TRUE)
@@ -41,8 +50,9 @@ int main(int argc, char *argv[])
         int commandBytes = read(STDIN, line, INPUT_SIZE);
 
         //Check for ctrl+D input
-        //If the line is blank them using the EOT operator(ctrl + D) should result in a line which is zero bytes long
-        if (commandBytes == 0) break;
+        /*If the line is blank them using the EOT operator(ctrl + D) should 
+          result in a line which is zero bytes long*/
+        if (commandBytes == 0) exit(0);//break;
 
         /*.......................PARSE.LINE.......................*/
         //Read the line to find the number of space characters
@@ -50,26 +60,136 @@ int main(int argc, char *argv[])
         int lNum = 0;
         while (line[lNum] != '\0')
         {
+            //Check for meta-chars
+            switch(line[lNum])
+            {
+                case '&':
+                    isAM = true;
+                    line[lNum+1] = '\0'; //used to stop counting of spaces
+                    if (line[lNum-1] == ' ')
+                        space--;
+                    break;
+                case '|':
+                    isVB = true;
+                    line[lNum+1] = '\0';
+                    if (line[lNum-1] == ' ')
+                        space--;
+                    break;
+                case '<':
+                    isLT = true;
+                    line[lNum+1] = '\0';
+                    if (line[lNum-1] == ' ')
+                        space--;
+                    break;
+                case '>':
+                    isGT = true;
+                    line[lNum+1] = '\0';
+                    if (line[lNum-1] == ' ')
+                        space--;
+                    break;   
+            } 
+            
+            //Count number of spaces before meta-chars
             space += (line[lNum] == ' ') ? 1 : 0;
             lNum++;
         }
 
         //Split up the line into different strings
         char tempstr[space+2][TOKEN_SIZE];
-        lNum = 0;
-        int i;
-        for (i = 0; i < space+1; i++)
+        if (!isAM && !isVB && !isGT && !isLT)
         {
-            int tNum = 0;
-            while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n')
+            //Default splitting of line with no meta characters
+            lNum = 0;
+            for (int i = 0; i < space+1; i++)
             {
-                tempstr[i][tNum] = line[lNum];
-                tNum++;
+                int tNum = 0;
+                while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n')
+                {
+                    tempstr[i][tNum] = line[lNum]; 
+                    tNum++;
+                    lNum++;          
+                }
+                tempstr[i][tNum] = '\0';
                 lNum++;
             }
-            tempstr[i][tNum] = '\0';
-            lNum++;
         }
+        else
+        {
+            //Splitting of line until meta-char
+            lNum = 0;
+            for (int i = 0; i < space+1; i++)
+            {
+                int tNum = 0;
+                while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
+                && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
+                {
+                    tempstr[i][tNum] = line[lNum]; 
+                    tNum++;
+                    lNum++;           
+                }
+                tempstr[i][tNum] = '\0';
+                if (line[lNum] == ' ') lNum++;
+            }
+
+            //Then deal with each meta-char
+            bool moreMeta = true;
+            while(moreMeta)
+            {
+                switch(line[lNum])
+                {
+
+                case '&':
+                
+                    printf("not yet");
+                    exit(0);
+                
+                    break;
+                case '|':
+                
+                    printf("not yet");
+                    exit(0);
+                
+                    break;
+                case '<':
+                
+                    //First elmimate spaces before the filename
+                    while (line[lNum] == ' ') lNum++;
+
+                    //Then get the whole filename
+                    int j = 0;
+                    memset(in_filename, 0, INPUT_SIZE);
+                    while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
+                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
+                    {
+                        in_filename[j] = line[lNum];
+                        lNum++;
+                    }
+                    printf("%s", in_filename);
+                    //Then check for more meta characters
+                    if(line[lNum] == '\0' && line[lNum] == '\n')
+                    {
+                        moreMeta = false;
+                    }
+                    else 
+                        //Move to the next non space char
+                        do{
+                            lNum++;
+                        }while (line[lNum] == ' ');
+                    
+                        if(line[lNum] == '<')
+                        {
+                            printf("ERROR: Only one imput redirection is allowed for a single command");
+                            exit(0);
+                        }
+                    break;
+                case '>':
+
+                    break;
+                }
+            }
+        }
+        
+
         //Declare parameters array dynamically and set equal to tempstr
         int parameterSize = ((space+2) * sizeof(char*));
         if (firstIteration)
@@ -81,14 +201,14 @@ int main(int argc, char *argv[])
         {
             parameters = realloc(parameters,parameterSize);
         }
-        for (i = 0; i < space+1; i++)
+        for (int i = 0; i < space+1; i++)
         {
             parameters[i] = malloc(TOKEN_SIZE*sizeof(char));
             parameters[i] = tempstr[i];
             printf("%s\n", parameters[i]);
         }
         parameters[space+1] = NULL;
-        
+
         //Get command from the parameters
         strcpy(command, parameters[0]);
 
@@ -97,6 +217,9 @@ int main(int argc, char *argv[])
 
         /*.......................FORK.......................*/
         int status;
+        int fd[2];
+        char in_filename[] = "ls_test";
+        char out_filename[] = "fake_file";
         if (fork()!=0)
         {
             //Parent Code
@@ -106,7 +229,29 @@ int main(int argc, char *argv[])
         else
         {
             //Child Code
-            execvp(command, parameters);
+            if (isLT)
+            {
+                fd[0] = open(in_filename);
+                close(STDIN);
+                dup2(fd[0], STDIN);
+                close(fd[0]);
+
+                execvp(command, parameters);
+            }
+            else if (isGT)
+            {
+                fd[0] = open(out_filename);
+                close(STDOUT);
+                dup2(fd[0], STDOUT);
+                close(fd[0]);  
+
+                execvp(command, parameters);
+            }
+            else
+            {
+                execvp(command, parameters);
+            }
+            
         } 
     }
     //Free the dynamic memory
