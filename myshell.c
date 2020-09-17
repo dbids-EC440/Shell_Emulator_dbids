@@ -25,8 +25,8 @@ int main(int argc, char *argv[])
     char** parameters = NULL;
     char command[TOKEN_SIZE];
     int numCommands = 0;
-    char in_filename[TOKEN_SIZE];
-    char out_filename[TOKEN_SIZE] = "fake_file";
+    char inFilename[TOKEN_SIZE];
+    char outFilename[TOKEN_SIZE];
 
     //These are bools that I use to detect presence of the meta characters
     bool isLT = false; //detects <
@@ -69,9 +69,16 @@ int main(int argc, char *argv[])
         }
 
         /*.......................PARSE.LINE.......................*/
+        //clear the meta char bools
+            if (isAM) isAM = false;
+            if (isLT) isLT = false;
+            if (isGT) isGT = false;
+            if (isVB) isVB = false;
+        
         //Read the line to find the number of space characters
         int space = 0;
         int lNum = 0;
+        int pipeNum = 0; //counts the number of pipes
         while (line[lNum] != '\0')
         {
             //Check for meta-chars
@@ -86,12 +93,20 @@ int main(int argc, char *argv[])
                     break;
                 case '|':
                     isVB = true;
+                    pipeNum++;
                     if (line[lNum+1] == ' ')
                         space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;
                 case '<':
+                    //Check for second < after the first
+                    if(isLT)
+                    {
+                        write(STDERR, "ERROR: Only allowed to redirect input to one file for a single command\n", 71);
+                        exit(0);
+                    }
+                    //set isLT to true and decrement space as needed
                     isLT = true;
                     if (line[lNum+1] == ' ')
                         space--;
@@ -99,6 +114,13 @@ int main(int argc, char *argv[])
                         space--;
                     break;
                 case '>':
+                    //Check for second < after the first
+                    if(isGT)
+                    {
+                        write(STDERR, "ERROR: Only allowed to redirect output to one file for a single command\n", 72);
+                        exit(0);
+                    }
+                    //set isGT to true and decrement space as needed
                     isGT = true;
                     if (line[lNum+1] == ' ')
                         space--;
@@ -153,6 +175,10 @@ int main(int argc, char *argv[])
 
             //Then deal with each meta-char
             bool moreMeta = true;
+            int fNum = 0;
+            char currentMeta = '>';
+            char oppositeMeta = '<';
+            char* currentFilename[TOKEN_SIZE];
             while(moreMeta)
             {
                 switch(line[lNum])
@@ -171,27 +197,42 @@ int main(int argc, char *argv[])
                 
                     break;
                 case '<':
-                    
-                    //First elmimate spaces before the filename
+                case '>':
+
+                    //Change vars between < and > operations
                     if (line[lNum] == '<')
+                    {
+                        currentMeta = '<';
+                        oppositeMeta = '>';
+                        *currentFilename = inFilename;
+                    }
+                    else
+                    {
+                        currentMeta = '>';
+                        oppositeMeta = '<';
+                        *currentFilename = outFilename;
+                    }
+                
+                    //First elmimate spaces before the filename
+                    if (line[lNum] == currentMeta)
                         lNum++;
                     while (line[lNum] == ' ') 
                         lNum++;
 
                     //Check for double <<
-                    if(line[lNum] == '<')
+                    if(line[lNum] == currentMeta)
                     {
-                        write(STDERR, "ERROR: Only one imput redirection is allowed for a single command\n", 66);
+                        write(STDERR, "ERROR: Only allowed to redirect input or output to one file for a single command\n", 81);
                         exit(0);
                     }
 
                     //Then get the whole filename
-                    int fNum = 0;
-                    memset(in_filename, 0, TOKEN_SIZE);
+                    fNum = 0;
+                    memset(*currentFilename, 0, TOKEN_SIZE);
                     while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
-                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '>')
+                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != oppositeMeta)
                     {
-                        *(in_filename+fNum) = *(line+lNum);
+                        *(*(currentFilename)+fNum) = *(line+lNum);
                         lNum++;
                         fNum++;
                     }
@@ -202,19 +243,11 @@ int main(int argc, char *argv[])
                         moreMeta = false;
                     }
                     else 
-                        //Check for second < after the first
-                        if(line[lNum] == '<')
-                        {
-                            write(STDERR, "ERROR: Only one imput redirection is allowed for a single command", 65);
-                            exit(0);
-                        }
-
+                    {
                         //Move to the next non space char
                         while (line[lNum] == ' ')
                             lNum++;
-                    break;
-                case '>':
-                    moreMeta = false;
+                    }
                     break;
                 }
             }
@@ -254,12 +287,6 @@ int main(int argc, char *argv[])
             //Wait for the child
             waitpid(-1, &status, 0);
             printf("The status was: %d\n", status);
-
-            //clear the meta char bools
-            if (isAM) isAM = false;
-            if (isLT) isLT = false;
-            if (isGT) isGT = false;
-            if (isVB) isVB = false;
         }
         else
         {
@@ -267,7 +294,7 @@ int main(int argc, char *argv[])
             //Redirect STDIN if < character was used
             if (isLT)
             {
-                fd[0] = open(in_filename, O_RDONLY);
+                fd[0] = open(inFilename, O_RDONLY);
                 close(STDIN);
                 dup2(fd[0], STDIN);
                 close(fd[0]);
@@ -275,7 +302,7 @@ int main(int argc, char *argv[])
             //Redirect STDOUT if > character was used
             if (isGT)
             {
-                fd[1] = open(out_filename, O_WRONLY);
+                fd[1] = open(outFilename, O_WRONLY);
                 close(STDOUT);
                 dup2(fd[0], STDOUT);
                 close(fd[0]);  
