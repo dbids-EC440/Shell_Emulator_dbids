@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #define TRUE 1
 #define TOKEN_SIZE 32 //maximum length of tokens
@@ -21,10 +23,10 @@ int main(int argc, char *argv[])
     char** parameters = NULL;
     char command[TOKEN_SIZE];
     int numCommands = 0;
-    char in_filename[INPUT_SIZE];
-    char out_filename[INPUT_SIZE];
+    char in_filename[TOKEN_SIZE];
+    char out_filename[TOKEN_SIZE];
 
-    //These are "flags" that I use to detect the presence of the meta characters
+    //These are bools that I use to detect the presence of the meta characters
     bool isLT = false; //detects <
     bool isGT = false; //detects >
     bool isVB = false; //detects |
@@ -52,7 +54,11 @@ int main(int argc, char *argv[])
         //Check for ctrl+D input
         /*If the line is blank them using the EOT operator(ctrl + D) should 
           result in a line which is zero bytes long*/
-        if (commandBytes == 0) exit(0);//break;
+        if (commandBytes == 0) 
+        {
+            writeBytes = write(STDOUT, "\n", 1);
+            exit(0);
+        }
 
         /*.......................PARSE.LINE.......................*/
         //Read the line to find the number of space characters
@@ -151,20 +157,24 @@ int main(int argc, char *argv[])
                 
                     break;
                 case '<':
-                
-                    //First elmimate spaces before the filename
-                    while (line[lNum] == ' ') lNum++;
+                    
+                    //First elmimate spaces (or weirdly \0) before the filename
+                    lNum++;
+                    while (line[lNum] == ' ' || line[lNum] == '\0') 
+                        lNum++;
 
                     //Then get the whole filename
-                    int j = 0;
-                    memset(in_filename, 0, INPUT_SIZE);
+                    int fNum = 0;
+                    memset(in_filename, 0, TOKEN_SIZE);
                     while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
-                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
+                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '>')
                     {
-                        in_filename[j] = line[lNum];
+                        in_filename[fNum] = line[lNum];
                         lNum++;
+                        fNum++;
                     }
                     printf("%s", in_filename);
+
                     //Then check for more meta characters
                     if(line[lNum] == '\0' && line[lNum] == '\n')
                     {
@@ -178,7 +188,7 @@ int main(int argc, char *argv[])
                     
                         if(line[lNum] == '<')
                         {
-                            printf("ERROR: Only one imput redirection is allowed for a single command");
+                            write(STDERR, "ERROR: Only one imput redirection is allowed for a single command", 128);
                             exit(0);
                         }
                     break;
@@ -229,29 +239,40 @@ int main(int argc, char *argv[])
         else
         {
             //Child Code
+
+            //Redirect STDIN if < character was used
             if (isLT)
             {
-                fd[0] = open(in_filename);
+                fd[0] = open(in_filename, O_RDONLY);
                 close(STDIN);
                 dup2(fd[0], STDIN);
                 close(fd[0]);
-
-                execvp(command, parameters);
             }
-            else if (isGT)
+            //Redurect STDOUT if > character was used
+            if (isGT)
             {
-                fd[0] = open(out_filename);
+                fd[0] = open(out_filename, O_WRONLY);
                 close(STDOUT);
                 dup2(fd[0], STDOUT);
                 close(fd[0]);  
-
-                execvp(command, parameters);
+            }
+            //Put in background if AM was used, THIS MIGHT NOT BE NEEDED HERE AND ONLY IN PARENT
+            if (isAM)
+            {
+                execlp("ls", "ls"); //place holder
+            }
+            //Pipe if VB was used
+            if (isVB)
+            {
+                execlp("ls", "ls"); //place holder
             }
             else
             {
                 execvp(command, parameters);
             }
             
+            
+
         } 
     }
     //Free the dynamic memory
