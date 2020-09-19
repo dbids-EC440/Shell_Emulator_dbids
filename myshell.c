@@ -25,6 +25,17 @@ void zombieHandler(int sig, siginfo_t *info, void *ucontext)
     waitpid(-1, &wstatus, WNOHANG);
 }
 
+//Just a maximum function for an array of ints.  Used for space variable below.
+int largest(int arr[], int n) 
+{ 
+    int max = arr[0];  
+    for (int i = 1; i < n; i++) 
+        if (arr[i] > max) 
+            max = arr[i]; 
+  
+    return max; 
+} 
+
 /*...................MAIN FUNCTION........................*/
 int main(int argc, char *argv[])  
 {
@@ -32,11 +43,13 @@ int main(int argc, char *argv[])
     char line[INPUT_SIZE];
     bool firstIteration = true;
     bool endShell = false;
-    char** parameters = NULL;
+    char*** parametersPointer = NULL;
     char command[TOKEN_SIZE];
-    int numCommands = 0;
     char inFilename[TOKEN_SIZE];
     char outFilename[TOKEN_SIZE];
+    int space[INPUT_SIZE / 2];                  //counts the number of spaces (and in turn arguments) for each command (possibly multiple due to pipe)
+    int lNum = 0;                               //iterates through the line
+    int pipeNum = 0;                            //counts the number of pipes
 
     //These are bools that I use to detect presence of the meta characters
     bool isLT = false; //detects <
@@ -46,9 +59,9 @@ int main(int argc, char *argv[])
 
     //Initialize the action that is taken when the parent recieves SIGCHLD
     struct sigaction act = { 0 };
-    act.sa_sigaction = &zombieHandler; //calls the zombieHandler function for SIGCHLD
+    act.sa_sigaction = &zombieHandler;  //calls the zombieHandler function for SIGCHLD
     act.sa_flags = SA_SIGINFO;
-    int backgroundNum = 0; //This counts the number of background processes since myshells inception
+    int backgroundNum = 0;              //This counts the number of background processes since myshells inception
 
     //Loop for shell
     while (TRUE)
@@ -86,15 +99,18 @@ int main(int argc, char *argv[])
 
         /*.......................PARSE.LINE.......................*/
         //clear the meta char bools
-            if (isAM) isAM = false;
-            if (isLT) isLT = false;
-            if (isGT) isGT = false;
-            if (isVB) isVB = false;
+        if (isAM) isAM = false;
+        if (isLT) isLT = false;
+        if (isGT) isGT = false;
+        if (isVB) isVB = false;
         
-        //Read the line to find the number of space characters
-        int space = 0;
-        int lNum = 0;
-        int pipeNum = 0; //counts the number of pipes
+        //Read the line to find the number of space characters in each pipe seperated command, the types of meta chars, and the number of pipes
+        for (int i = 0; i < (INPUT_SIZE / 2); i++)
+        {
+            space[i] = 0;
+        }
+        lNum = 0;
+        pipeNum = 0;
         while (line[lNum] != '\0')
         {
             //Check for meta-chars
@@ -110,15 +126,16 @@ int main(int argc, char *argv[])
                     //set isAM to true and decrement space as needed
                     isAM = true;
                     if (line[lNum-1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     break;
                 case '|':
+                    //set isVB to true and count the number of pipes
                     isVB = true;
                     pipeNum++;
                     if (line[lNum+1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     if (line[lNum-1] == ' ')
-                        space--;
+                        space[pipeNum - 1]--;
                     break;
                 case '<':
                     //Check for second < after the first
@@ -130,9 +147,9 @@ int main(int argc, char *argv[])
                     //set isLT to true and decrement space as needed
                     isLT = true;
                     if (line[lNum+1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     if (line[lNum-1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     break;
                 case '>':
                     //Check for second < after the first
@@ -144,35 +161,36 @@ int main(int argc, char *argv[])
                     //set isGT to true and decrement space as needed
                     isGT = true;
                     if (line[lNum+1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     if (line[lNum-1] == ' ')
-                        space--;
+                        space[pipeNum]--;
                     break;
                 default:
                     break;   
             } 
-            
+
             //Count number of spaces before meta-chars
-            space += (line[lNum] == ' ') ? 1 : 0;
+            space[pipeNum] += (line[lNum] == ' ') ? 1 : 0;
             lNum++;
         }
 
         //Split up the line into different strings
-        char tempstr[space+2][TOKEN_SIZE];
+        int maxSpace = largest(space, INPUT_SIZE/2);
+        char tempstr[pipeNum+1][maxSpace+2][TOKEN_SIZE];
         if (!isAM && !isVB && !isGT && !isLT)
         {
             //Default splitting of line with no meta characters
             lNum = 0;
-            for (int i = 0; i < space+1; i++)
+            for (int i = 0; i < space[0]+1; i++)
             {
                 int tNum = 0;
                 while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n')
                 {
-                    tempstr[i][tNum] = line[lNum]; 
+                    tempstr[0][i][tNum] = line[lNum]; 
                     tNum++;
                     lNum++;          
                 }
-                tempstr[i][tNum] = '\0';
+                tempstr[0][i][tNum] = '\0';
                 lNum++;
             }
         }
@@ -180,18 +198,20 @@ int main(int argc, char *argv[])
         {
             //Splitting of line until meta-char
             lNum = 0;
-            for (int i = 0; i < space+1; i++)
+            while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
             {
+                int i = 0;
                 int tNum = 0;
                 while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
                 && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
                 {
-                    tempstr[i][tNum] = line[lNum]; 
+                    tempstr[0][i][tNum] = line[lNum]; 
                     tNum++;
                     lNum++;           
                 }
-                tempstr[i][tNum] = '\0';
+                tempstr[0][i][tNum] = '\0';
                 if (line[lNum] == ' ') lNum++;
+                i++;
             }
 
             //Then deal with each meta-char
@@ -200,15 +220,33 @@ int main(int argc, char *argv[])
             char currentMeta = '>';
             char oppositeMeta = '<';
             char* currentFilename[TOKEN_SIZE];
+            int currentPipeNum = 0;
             while(moreMeta)
             {
                 switch(line[lNum])
                 {
                 case '|':
-                    printf("not yet");
-                    exit(EXIT_FAILURE);
-            
+                    //Increase the current pipe number for the tempstr array
+                    currentPipeNum++;
+
+                    //Continue to split the line until the a meta char or 
+                    while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')
+                    {
+                        int i = 0;
+                        int tNum = 0;
+                        while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
+                        && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
+                        {
+                            tempstr[currentPipeNum][i][tNum] = line[lNum]; 
+                            tNum++;
+                            lNum++;           
+                        }
+                        tempstr[currentPipeNum][i][tNum] = '\0';
+                        if (line[lNum] == ' ') lNum++;
+                        i++;
+                    }
                     break;
+
                 case '&':
                     moreMeta = false;
 
@@ -270,32 +308,46 @@ int main(int argc, char *argv[])
             }
         }
         
-
         //Declare parameters array dynamically and set equal to tempstr
-        int parameterSize = ((space+2) * sizeof(char*));
+        int parameterSize = ((maxSpace+2) * sizeof(char*));
+        int pipeParameterSize = ((pipeNum+1) * sizeof(char**));
+        int currentPipeNum = 0;
         if (firstIteration)
         {
-            parameters = malloc(parameterSize);
+            parametersPointer = malloc(pipeParameterSize);
             firstIteration = false;
         }
         else
         {
-            parameters = realloc(parameters,parameterSize);
+            parametersPointer = realloc(parametersPointer,pipeParameterSize);
         }
-        for (int i = 0; i < space+1; i++)
+        for (int j = 0; j < pipeNum+1; j++)
         {
-            parameters[i] = malloc(TOKEN_SIZE*sizeof(char));
-            parameters[i] = tempstr[i];
+            if (firstIteration)
+            {
+                parametersPointer[j] = malloc(parameterSize);
+                firstIteration = false;
+            }
+            else
+            {
+                parametersPointer[j] = realloc(parametersPointer[j],parameterSize);
+            }
+            for (int i = 0; i < space[j]+1; i++)
+            {
+                parametersPointer[j][i] = malloc(TOKEN_SIZE*sizeof(char));
+                parametersPointer[j][i] = tempstr[j][i];
+            }
+            parametersPointer[j][space[j]+1] = NULL;
         }
-        parameters[space+1] = NULL;
 
-        //Get command from the parameters
-        strcpy(command, parameters[0]);
-
+        //Get first command from the parameters
+        strcpy(command, parametersPointer[0][0]);
+            
         //Flush the output buffer for saftey
         fflush(stdout);
 
         /*.......................FORK.......................*/
+        currentPipeNum = 0;
         int status;
         int fd[2];
         pid_t pid = fork();
@@ -305,6 +357,14 @@ int main(int argc, char *argv[])
             //Associates the SIGCHILD signal with the given handler
             sigaction(SIGCHLD, &act, NULL);
 
+            if (isVB)
+            {
+                //Increment current pipenumber
+                currentPipeNum++;
+                //Get next command
+                strcpy(command, parametersPointer[currentPipeNum][0]);
+            }
+
             if (!isAM)
             {
                 //Wait for the child if not a background process
@@ -313,7 +373,7 @@ int main(int argc, char *argv[])
                 //Check for Error in executed process
                 if (status != 0)
                 {
-                    fprintf(stderr,"ERROR: The status was %d\n", status);
+                    fprintf(stderr,"ERROR: Process failed with status %d\n", status);
                     exit(EXIT_FAILURE);
                 } 
             }
@@ -349,14 +409,14 @@ int main(int argc, char *argv[])
             }
             else
             {
-                execvp(command, parameters);
+                execvp(command, parametersPointer[currentPipeNum]);
             }
         } 
     }
     //Free the dynamic memory
     if (!firstIteration)
     {
-        free(parameters);
+        free(parametersPointer);
     }
     
     return 0;   
