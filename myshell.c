@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <signal.h>
 
 #define TRUE 1
 #define TOKEN_SIZE 32 //maximum length of tokens
@@ -16,6 +17,15 @@
 #define STDOUT 1
 #define STDERR 2
 
+//Define the sigaction struct for handling zombie processes
+void zombieHandler(int sig, siginfo_t *info, void *ucontext)
+{
+    //Here I call wait so that the pid of the zombie is properly removed from the process table
+    int wstatus;
+    waitpid(-1, &wstatus, WNOHANG);
+}
+
+/*...................MAIN FUNCTION........................*/
 int main(int argc, char *argv[])  
 {
     //Declare parameters initially
@@ -34,16 +44,21 @@ int main(int argc, char *argv[])
     bool isVB = false; //detects |
     bool isAM = false; //detects &
 
+    //Initialize the action that is taken when the parent recieves SIGCHLD
+    struct sigaction act = { 0 };
+    act.sa_sigaction = &zombieHandler; //calls the zombieHandler function for SIGCHLD
+    act.sa_flags = SA_SIGINFO;
+    int backgroundNum = 0; //This counts the number of background processes since myshells inception
+
     //Loop for shell
     while (TRUE)
     {
         /*.......................PROMPT.......................*/
-        int writeBytes;
         if (argc == 1)
         {
-            writeBytes = write(STDOUT, "myshell$", 8);
+            int writeBytes = write(STDOUT, "myshell$", 8);
         }
-        else if (argv[1] != "-n")
+        else if (argv[1] != "-n" && argv[2] != "\0")
         {
             write(STDERR, "ERROR: command line argument not alowed", 39);
         }
@@ -59,13 +74,14 @@ int main(int argc, char *argv[])
         if (commandBytes == 0) 
         {
             write(STDOUT, "\n", 1);
-            exit(0);
+            exit(EXIT_SUCCESS);
         }
-        //Checks for invalid read just in case
+        //Checks for invalid read which tends to happen with background processes
         else if (commandBytes < 0)
         {
-            write(STDERR, "ERROR: reading from STDIN falied with message: ", 49);
-            write(STDERR,strerror(errno), sizeof(errno));
+            /*int c; 
+            while((c = getchar()) != '\n' && c != EOF); */
+            read(STDIN, line, INPUT_SIZE);
         }
 
         /*.......................PARSE.LINE.......................*/
@@ -85,9 +101,14 @@ int main(int argc, char *argv[])
             switch(line[lNum])
             {
                 case '&':
+                    //Check for \n after the ampersand as that should be the only possibility
+                    if(line[lNum+1] != '\n')
+                    {
+                        write(STDERR, "ERROR: Ampersand only allowed one time at the end of the command\n", 65);
+                        exit(EXIT_FAILURE);
+                    }
+                    //set isAM to true and decrement space as needed
                     isAM = true;
-                    if (line[lNum+1] == ' ')//used to stop counting of spaces
-                        space--;
                     if (line[lNum-1] == ' ')
                         space--;
                     break;
@@ -104,7 +125,7 @@ int main(int argc, char *argv[])
                     if(isLT)
                     {
                         write(STDERR, "ERROR: Only allowed to redirect input to one file for a single command\n", 71);
-                        exit(0);
+                        exit(EXIT_FAILURE);
                     }
                     //set isLT to true and decrement space as needed
                     isLT = true;
@@ -118,7 +139,7 @@ int main(int argc, char *argv[])
                     if(isGT)
                     {
                         write(STDERR, "ERROR: Only allowed to redirect output to one file for a single command\n", 72);
-                        exit(0);
+                        exit(EXIT_FAILURE);
                     }
                     //set isGT to true and decrement space as needed
                     isGT = true;
@@ -183,18 +204,14 @@ int main(int argc, char *argv[])
             {
                 switch(line[lNum])
                 {
-
-                case '&':
-                
-                    printf("not yet");
-                    exit(0);
-                
-                    break;
                 case '|':
-                
                     printf("not yet");
-                    exit(0);
-                
+                    exit(EXIT_FAILURE);
+            
+                    break;
+                case '&':
+                    moreMeta = false;
+
                     break;
                 case '<':
                 case '>':
@@ -223,7 +240,7 @@ int main(int argc, char *argv[])
                     if(line[lNum] == currentMeta)
                     {
                         write(STDERR, "ERROR: Only allowed to redirect input or output to one file for a single command\n", 81);
-                        exit(0);
+                        exit(EXIT_FAILURE);
                     }
 
                     //Then get the whole filename
@@ -281,12 +298,30 @@ int main(int argc, char *argv[])
         /*.......................FORK.......................*/
         int status;
         int fd[2];
-        if (fork()!=0)
+        pid_t pid = fork();
+        if (pid!=0)
         {
-            /*..........PARENT..........*/
-            //Wait for the child
-            waitpid(-1, &status, 0);
-            printf("The status was: %d\n", status);
+            /*..........PARENT..........*/ 
+            //Associates the SIGCHILD signal with the given handler
+            sigaction(SIGCHLD, &act, NULL);
+
+            if (!isAM)
+            {
+                //Wait for the child if not a background process
+                waitpid(-1, &status, 0);
+                
+                //Check for Error in executed process
+                if (status != 0)
+                {
+                    fprintf(stderr,"ERROR: The status was %d\n", status);
+                    exit(EXIT_FAILURE);
+                } 
+            }
+            else
+            {
+                //Displays the backgroundNum and PID of the background process
+                printf("[%d] %d\n", ++backgroundNum, pid);
+            }     
         }
         else
         {
@@ -306,11 +341,6 @@ int main(int argc, char *argv[])
                 close(STDOUT);
                 dup2(fd[0], STDOUT);
                 close(fd[0]);  
-            }
-            //Put in background if AM was used, THIS MIGHT NOT BE NEEDED HERE AND ONLY IN PARENT
-            if (isAM)
-            {
-                execlp("ls", "ls"); //place holder
             }
             //Pipe if VB was used
             if (isVB)
