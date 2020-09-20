@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
         {
             int writeBytes = write(STDOUT, "myshell$", 8);
         }
-        else if (argv[1] != "-n" && argv[2] != "\0")
+        else if (strcmp(argv[1], "-n") && (argv+2) != NULL)
         {
             write(STDERR, "ERROR: command line argument not alowed", 39);
         }
@@ -229,10 +229,17 @@ int main(int argc, char *argv[])
                     //Increase the current pipe number for the tempstr array
                     currentPipeNum++;
 
+                    //First elmimate spaces before the filename
+                    if (line[lNum] == '|')
+                        lNum++;
+                    while (line[lNum] == ' ') 
+                        lNum++;
+
                     //Continue to split the line until the a meta char or 
+                    int i;
                     while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')
                     {
-                        int i = 0;
+                        i = 0;
                         int tNum = 0;
                         while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
                         && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
@@ -245,6 +252,13 @@ int main(int argc, char *argv[])
                         if (line[lNum] == ' ') lNum++;
                         i++;
                     }
+
+                    //Then check for more meta characters
+                    if(line[lNum] == '\0' || line[lNum] == '\n')
+                    {
+                        moreMeta = false;
+                    }
+
                     break;
 
                 case '&':
@@ -347,70 +361,112 @@ int main(int argc, char *argv[])
         fflush(stdout);
 
         /*.......................FORK.......................*/
+        //Establish variables common to the parent and child
         currentPipeNum = 0;
         int status;
-        int fd[2];
-        pid_t pid = fork();
-        if (pid!=0)
+        int iofd[2];
+        int pipefd[pipeNum][2];
+        
+        //Pipe and check for piping erros
+        for (int i = 0; i < pipeNum; i++)
         {
-            /*..........PARENT..........*/ 
-            //Associates the SIGCHILD signal with the given handler
-            sigaction(SIGCHLD, &act, NULL);
-
-            if (isVB)
+            int pipeReturn = pipe(&pipefd[i][0]);
+            if (pipeReturn)
             {
-                //Increment current pipenumber
-                currentPipeNum++;
-                //Get next command
-                strcpy(command, parametersPointer[currentPipeNum][0]);
+                perror("Error in pipe(): ");
             }
-
-            if (!isAM)
-            {
-                //Wait for the child if not a background process
-                waitpid(-1, &status, 0);
-                
-                //Check for Error in executed process
-                if (status != 0)
-                {
-                    fprintf(stderr,"ERROR: Process failed with status %d\n", status);
-                    exit(EXIT_FAILURE);
-                } 
-            }
-            else
-            {
-                //Displays the backgroundNum and PID of the background process
-                printf("[%d] %d\n", ++backgroundNum, pid);
-            }     
         }
-        else
+            
+        //Actually fork
+        for (int i = 0; i < pipeNum+1; i++)
         {
-            /*..........CHILD..........*/
-            //Redirect STDIN if < character was used
-            if (isLT)
+            pid_t pid = fork();
+            if (pid!=0)
             {
-                fd[0] = open(inFilename, O_RDONLY);
-                close(STDIN);
-                dup2(fd[0], STDIN);
-                close(fd[0]);
-            }
-            //Redirect STDOUT if > character was used
-            if (isGT)
-            {
-                fd[1] = open(outFilename, O_WRONLY);
-                close(STDOUT);
-                dup2(fd[0], STDOUT);
-                close(fd[0]);  
-            }
-            //Pipe if VB was used
-            if (isVB)
-            {
-                execlp("ls", "ls"); //place holder
+                /*..........PARENT..........*/ 
+                //Associates the SIGCHILD signal with the given handler
+                sigaction(SIGCHLD, &act, NULL);
+
+                if (isVB)
+                {
+                    //Get next command
+                    strcpy(command, parametersPointer[currentPipeNum][0]);
+                }
+                //Wait for the child if not a background process, or if it is the end of the pipeline
+                if (!isAM /*&& !isVB) || (isVB && (currentPipeNum == pipeNum))*/)
+                {
+                    waitpid(-1, &status, 0);
+                    
+                    //Check for Error in executed process
+                    if (status != 0)
+                    {
+                        fprintf(stderr,"ERROR: Process failed with status %d\n", status);
+                        exit(EXIT_FAILURE);
+                    } 
+                }
+                else
+                {
+                    //Displays the backgroundNum and PID of the background process
+                    printf("[%d] %d\n", ++backgroundNum, pid);
+                }     
             }
             else
             {
+                /*..........CHILD..........*/
+                //Redirect STDIN if < character was used
+                if (isLT)
+                {
+                    if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
+                    {
+                        iofd[0] = open(inFilename, O_RDONLY);
+                        close(STDIN);
+                        dup2(iofd[0], STDIN);
+                        close(iofd[0]);
+                    } 
+                }
+                //Redirect STDOUT if > character was used
+                if (isGT)
+                {
+                    if ((isVB && currentPipeNum == pipeNum) || (!isVB)) //checks for piping conditons
+                    {
+                        iofd[1] = open(outFilename, O_WRONLY);
+                        close(STDOUT);
+                        dup2(iofd[1], STDOUT);
+                        close(iofd[1]);  
+                    }
+                }
+                //Pipe if VB was used
+                if (isVB)
+                {
+                    //PIPES STDIN from prev command, if this is the second or later command
+                    if(currentPipeNum > 0)
+                    {
+                        close(pipefd[currentPipeNum-1][1]);
+                        close(STDIN);
+                        dup2(pipefd[currentPipeNum-1][0], STDIN);
+                        close(pipefd[currentPipeNum-1][0]);
+                    }
+                    
+                    //PIPES STDOUT to next command, if there is a next pipe
+                    if (currentPipeNum != pipeNum)
+                    {
+                        close(pipefd[currentPipeNum][0]);
+                        close(STDOUT);
+                        dup2(pipefd[currentPipeNum][1], STDOUT);
+                        close(pipefd[currentPipeNum][1]);
+                    }
+                }
+                
                 execvp(command, parametersPointer[currentPipeNum]);
+                
             }
+
+            //Change the parameters for the pipe at the end of the loop
+            if (isVB)
+                {
+                    //Increment current pipe number
+                    currentPipeNum++;
+                }
         } 
     }
     //Free the dynamic memory
