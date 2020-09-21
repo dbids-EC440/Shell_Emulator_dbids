@@ -44,12 +44,13 @@ int main(int argc, char *argv[])
     bool firstIteration = true;
     bool endShell = false;
     char*** parametersPointer = NULL;
-    char command[TOKEN_SIZE];
     char inFilename[TOKEN_SIZE];
     char outFilename[TOKEN_SIZE];
     int space[INPUT_SIZE / 2];                  //counts the number of spaces (and in turn arguments) for each command (possibly multiple due to pipe)
     int lNum = 0;                               //iterates through the line
     int pipeNum = 0;                            //counts the number of pipes
+    int currentPipeNum = 0;                     //iterate through the pipes
+    bool throwError = false;
 
     //These are bools that I use to detect presence of the meta characters
     bool isLT = false; //detects <
@@ -63,9 +64,13 @@ int main(int argc, char *argv[])
     act.sa_flags = SA_SIGINFO;
     int backgroundNum = 0;              //This counts the number of background processes since myshells inception
 
+
     //Loop for shell
     while (TRUE)
     {
+        //Reset error 
+        throwError = false;
+        
         /*.......................PROMPT.......................*/
         if (argc == 1)
         {
@@ -121,7 +126,8 @@ int main(int argc, char *argv[])
                     if(line[lNum+1] != '\n')
                     {
                         write(STDERR, "ERROR: Ampersand only allowed one time at the end of the command\n", 65);
-                        exit(EXIT_FAILURE);
+                        throwError = true;
+                        break;
                     }
                     //set isAM to true and decrement space as needed
                     isAM = true;
@@ -142,7 +148,8 @@ int main(int argc, char *argv[])
                     if(isLT)
                     {
                         write(STDERR, "ERROR: Only allowed to redirect input to one file for a single command\n", 71);
-                        exit(EXIT_FAILURE);
+                        throwError = true;
+                        break;
                     }
                     //set isLT to true and decrement space as needed
                     isLT = true;
@@ -156,7 +163,8 @@ int main(int argc, char *argv[])
                     if(isGT)
                     {
                         write(STDERR, "ERROR: Only allowed to redirect output to one file for a single command\n", 72);
-                        exit(EXIT_FAILURE);
+                        throwError = true;
+                        break;
                     }
                     //set isGT to true and decrement space as needed
                     isGT = true;
@@ -220,7 +228,6 @@ int main(int argc, char *argv[])
             char currentMeta = '>';
             char oppositeMeta = '<';
             char* currentFilename[TOKEN_SIZE];
-            int currentPipeNum = 0;
             while(moreMeta)
             {
                 switch(line[lNum])
@@ -231,15 +238,22 @@ int main(int argc, char *argv[])
 
                     //First elmimate spaces before the filename
                     if (line[lNum] == '|')
+                    {
                         lNum++;
+                        if (line[lNum] == '|')
+                        {
+                            write(STDERR, "ERROR: Cannot place two pipe characters in succession\n", 56);
+                            throwError = true;
+                            break;
+                        }
+                    }
                     while (line[lNum] == ' ') 
                         lNum++;
 
                     //Continue to split the line until the a meta char or 
-                    int i;
+                    int i = 0;
                     while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')
                     {
-                        i = 0;
                         int tNum = 0;
                         while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
                         && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
@@ -283,17 +297,8 @@ int main(int argc, char *argv[])
                     }
                 
                     //First elmimate spaces before the filename
-                    if (line[lNum] == currentMeta)
+                    while (line[lNum] == currentMeta || line[lNum] == ' ')
                         lNum++;
-                    while (line[lNum] == ' ') 
-                        lNum++;
-
-                    //Check for double <<
-                    if(line[lNum] == currentMeta)
-                    {
-                        write(STDERR, "ERROR: Only allowed to redirect input or output to one file for a single command\n", 81);
-                        exit(EXIT_FAILURE);
-                    }
 
                     //Then get the whole filename
                     fNum = 0;
@@ -325,11 +330,10 @@ int main(int argc, char *argv[])
         //Declare parameters array dynamically and set equal to tempstr
         int parameterSize = ((maxSpace+2) * sizeof(char*));
         int pipeParameterSize = ((pipeNum+1) * sizeof(char**));
-        int currentPipeNum = 0;
+        currentPipeNum = 0;
         if (firstIteration)
         {
             parametersPointer = malloc(pipeParameterSize);
-            firstIteration = false;
         }
         else
         {
@@ -340,7 +344,6 @@ int main(int argc, char *argv[])
             if (firstIteration)
             {
                 parametersPointer[j] = malloc(parameterSize);
-                firstIteration = false;
             }
             else
             {
@@ -349,14 +352,11 @@ int main(int argc, char *argv[])
             for (int i = 0; i < space[j]+1; i++)
             {
                 parametersPointer[j][i] = malloc(TOKEN_SIZE*sizeof(char));
-                parametersPointer[j][i] = tempstr[j][i];
+                strcpy(parametersPointer[j][i], tempstr[j][i]);
             }
             parametersPointer[j][space[j]+1] = NULL;
         }
-
-        //Get first command from the parameters
-        strcpy(command, parametersPointer[0][0]);
-            
+        
         //Flush the output buffer for saftey
         fflush(stdout);
 
@@ -376,32 +376,28 @@ int main(int argc, char *argv[])
                 perror("Error in pipe(): ");
             }
         }
-            
+        
         //Actually fork
-        for (int i = 0; i < pipeNum+1; i++)
+        pid_t pid;
+        for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++)
         {
-            pid_t pid = fork();
+            printf("%d\n", currentPipeNum);
+            pid = fork();
             if (pid!=0)
             {
                 /*..........PARENT..........*/ 
                 //Associates the SIGCHILD signal with the given handler
                 sigaction(SIGCHLD, &act, NULL);
 
-                if (isVB)
-                {
-                    //Get next command
-                    strcpy(command, parametersPointer[currentPipeNum][0]);
-                }
                 //Wait for the child if not a background process, or if it is the end of the pipeline
-                if (!isAM /*&& !isVB) || (isVB && (currentPipeNum == pipeNum))*/)
+                if (!isAM)
                 {
-                    waitpid(-1, &status, 0);
+                    waitpid(pid, &status, 0);
                     
                     //Check for Error in executed process
                     if (status != 0)
                     {
                         fprintf(stderr,"ERROR: Process failed with status %d\n", status);
-                        exit(EXIT_FAILURE);
                     } 
                 }
                 else
@@ -414,6 +410,7 @@ int main(int argc, char *argv[])
             {
                 /*..........CHILD..........*/
                 //Redirect STDIN if < character was used
+
                 if (isLT)
                 {
                     if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
@@ -441,6 +438,7 @@ int main(int argc, char *argv[])
                     //PIPES STDIN from prev command, if this is the second or later command
                     if(currentPipeNum > 0)
                     {
+                        printf("stdin piped\n");
                         close(pipefd[currentPipeNum-1][1]);
                         close(STDIN);
                         dup2(pipefd[currentPipeNum-1][0], STDIN);
@@ -450,23 +448,16 @@ int main(int argc, char *argv[])
                     //PIPES STDOUT to next command, if there is a next pipe
                     if (currentPipeNum != pipeNum)
                     {
+                        printf("stdout piped\n");
                         close(pipefd[currentPipeNum][0]);
                         close(STDOUT);
                         dup2(pipefd[currentPipeNum][1], STDOUT);
                         close(pipefd[currentPipeNum][1]);
                     }
                 }
-                
-                execvp(command, parametersPointer[currentPipeNum]);
-                
+                //Finally execute
+                execvp(parametersPointer[currentPipeNum][0], parametersPointer[currentPipeNum]);
             }
-
-            //Change the parameters for the pipe at the end of the loop
-            if (isVB)
-                {
-                    //Increment current pipe number
-                    currentPipeNum++;
-                }
         } 
     }
     //Free the dynamic memory
