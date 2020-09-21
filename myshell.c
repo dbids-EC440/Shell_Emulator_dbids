@@ -10,10 +10,10 @@
 #include <errno.h>
 #include <signal.h>
 
-#define TRUE 1
-#define TOKEN_SIZE 32 //maximum length of tokens
-#define INPUT_SIZE 512 //maximum length of inputs
-#define STDIN 0
+#define TRUE 1              
+#define TOKEN_SIZE 32       //maximum length of tokens
+#define INPUT_SIZE 512      //maximum length of inputs
+#define STDIN 0  
 #define STDOUT 1
 #define STDERR 2
 
@@ -68,14 +68,16 @@ int main(int argc, char *argv[])
     //Loop for shell
     while (TRUE)
     {
-        //Reset error 
+        //Reset error bool used for preventing execution upon error
         throwError = false;
         
         /*.......................PROMPT.......................*/
+        //Prompts the user with the shell statement
         if (argc == 1)
         {
             int writeBytes = write(STDOUT, "myshell$", 8);
         }
+        //Error checks the command line arguments passed when invoking the shell
         else if (strcmp(argv[1], "-n") && (argv+2) != NULL)
         {
             write(STDERR, "ERROR: command line argument not alowed", 39);
@@ -83,7 +85,7 @@ int main(int argc, char *argv[])
 
         /*.......................READ.LINE.......................*/
         //Read the line
-        memset(line, 0, INPUT_SIZE);
+        memset(line, 0, INPUT_SIZE);                        //clears the line
         int commandBytes = read(STDIN, line, INPUT_SIZE);
 
         //Check for ctrl+D input
@@ -109,7 +111,8 @@ int main(int argc, char *argv[])
         if (isGT) isGT = false;
         if (isVB) isVB = false;
         
-        //Read the line to find the number of space characters in each pipe seperated command, the types of meta chars, and the number of pipes
+        /*..Read the line to find the number of space characters in each 
+        pipe seperated command, the types of meta chars, and the number of pipes..*/
         for (int i = 0; i < (INPUT_SIZE / 2); i++)
         {
             space[i] = 0;
@@ -118,7 +121,7 @@ int main(int argc, char *argv[])
         pipeNum = 0;
         while (line[lNum] != '\0')
         {
-            //Check for meta-chars
+            //Check for meta-chars first
             switch(line[lNum])
             {
                 case '&':
@@ -134,6 +137,7 @@ int main(int argc, char *argv[])
                     if (line[lNum-1] == ' ')
                         space[pipeNum]--;
                     break;
+
                 case '|':
                     //set isVB to true and count the number of pipes
                     isVB = true;
@@ -143,6 +147,7 @@ int main(int argc, char *argv[])
                     if (line[lNum-1] == ' ')
                         space[pipeNum - 1]--;
                     break;
+
                 case '<':
                     //Check for second < after the first
                     if(isLT)
@@ -158,6 +163,7 @@ int main(int argc, char *argv[])
                     if (line[lNum-1] == ' ')
                         space[pipeNum]--;
                     break;
+
                 case '>':
                     //Check for second < after the first
                     if(isGT)
@@ -173,18 +179,22 @@ int main(int argc, char *argv[])
                     if (line[lNum-1] == ' ')
                         space[pipeNum]--;
                     break;
-                default:
+
+                default: //Possibly unneccessary, but added just in case
                     break;   
             } 
-
             //Count number of spaces before meta-chars
             space[pipeNum] += (line[lNum] == ' ') ? 1 : 0;
             lNum++;
         }
 
-        //Split up the line into different strings
+        /*.......Split up the line into different strings.......*/
+
         int maxSpace = largest(space, INPUT_SIZE/2);
+
+        //The output parameters are stored in the variable tempstr
         char tempstr[pipeNum+1][maxSpace+2][TOKEN_SIZE];
+
         if (!isAM && !isVB && !isGT && !isLT)
         {
             //Default splitting of line with no meta characters
@@ -272,7 +282,6 @@ int main(int argc, char *argv[])
                     {
                         moreMeta = false;
                     }
-
                     break;
 
                 case '&':
@@ -327,7 +336,7 @@ int main(int argc, char *argv[])
             }
         }
         
-        //Declare parameters array dynamically and set equal to tempstr
+        /*.......Declare parameters array dynamically and set equal to tempstr.......*/
         int parameterSize = ((maxSpace+2) * sizeof(char*));
         int pipeParameterSize = ((pipeNum+1) * sizeof(char**));
         currentPipeNum = 0;
@@ -388,6 +397,18 @@ int main(int argc, char *argv[])
                 /*..........PARENT..........*/ 
                 //Associates the SIGCHILD signal with the given handler
                 sigaction(SIGCHLD, &act, NULL);
+
+                //Close all file descriptors for the parent
+                if (pipeNum == currentPipeNum)
+                {
+                    for (int i = 0; i < pipeNum; i++)
+                    {
+                        close(pipefd[i][0]);
+                        close(pipefd[i][1]);
+                    }
+                    close(iofd[0]);
+                    close(iofd[1]);
+                }
 
                 //Wait for the child if not a background process, or if it is the end of the pipeline
                 if (!isAM)
