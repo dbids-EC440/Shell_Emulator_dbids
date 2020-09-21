@@ -1,3 +1,8 @@
+//Feature test macros
+#define _GNU_SOURCE 1 //needed by pipe2
+#define _POSIX_C_SOURCE 199309L //needed for the sa_sigaction part of sigaction
+
+//header files
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -9,7 +14,9 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <signal.h>
+#include <features.h>
 
+//Pre-processor directives
 #define TRUE 1              
 #define TOKEN_SIZE 32       //maximum length of tokens
 #define INPUT_SIZE 512      //maximum length of inputs
@@ -63,7 +70,6 @@ int main(int argc, char *argv[])
     act.sa_sigaction = &zombieHandler;  //calls the zombieHandler function for SIGCHLD
     act.sa_flags = SA_SIGINFO;
     int backgroundNum = 0;              //This counts the number of background processes since myshells inception
-
 
     //Loop for shell
     while (TRUE)
@@ -257,6 +263,7 @@ int main(int argc, char *argv[])
                             break;
                         }
                     }
+
                     while (line[lNum] == ' ') 
                         lNum++;
 
@@ -286,8 +293,8 @@ int main(int argc, char *argv[])
 
                 case '&':
                     moreMeta = false;
-
                     break;
+
                 case '<':
                 case '>':
 
@@ -332,6 +339,7 @@ int main(int argc, char *argv[])
                             lNum++;
                     }
                     break;
+
                 }
             }
         }
@@ -379,7 +387,7 @@ int main(int argc, char *argv[])
         //Pipe and check for piping erros
         for (int i = 0; i < pipeNum; i++)
         {
-            int pipeReturn = pipe(&pipefd[i][0]);
+            int pipeReturn = pipe2(&pipefd[i][0], O_CLOEXEC);
             if (pipeReturn)
             {
                 perror("Error in pipe(): ");
@@ -388,96 +396,141 @@ int main(int argc, char *argv[])
         
         //Actually fork
         pid_t pid;
+        const pid_t ogParentPid = getpid(); //get the pid of the original parent process
         for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++)
         {
-            printf("%d\n", currentPipeNum);
-            pid = fork();
-            if (pid!=0)
+            fprintf(stderr, "currentPipeNum: %d \n", currentPipeNum);
+
+            if (getpid() == ogParentPid) //To prevent the child from forking to create a child of itself
             {
-                /*..........PARENT..........*/ 
-                //Associates the SIGCHILD signal with the given handler
-                sigaction(SIGCHLD, &act, NULL);
-
-                //Close all file descriptors for the parent
-                if (pipeNum == currentPipeNum)
+                fprintf(stderr, "Parent PID: %d\n",ogParentPid);
+                fprintf(stderr, "Parent PID: %d\n",getpid());
+                pid = fork();
+                if (pid > 0)
                 {
-                    for (int i = 0; i < pipeNum; i++)
+                    /*..........PARENT..........*/ 
+                    //Associates the SIGCHILD signal with the given handler
+                    sigaction(SIGCHLD, &act, NULL);
+
+                    fprintf(stderr, "Parent PID: %d\n", getpid());
+
+                    //Wait for the child if not a background process, or if it is the end of the pipeline
+                    if (!isAM)
                     {
-                        close(pipefd[i][0]);
-                        close(pipefd[i][1]);
+                        waitpid(-1, &status, 0);
+                        
+                        if (currentPipeNum > 0)
+                        {
+                            close(pipefd[currentPipeNum-1][0]);
+                            close(pipefd[currentPipeNum-1][1]);
+                        }
+                            
+                        fprintf(stderr, "%d\n", pid);
+                        /*if (fork() == 0)
+                        {
+                            char* tp[TOKEN_SIZE] = {"ps", "-u"};
+                            execvp("ps", tp);
+                        }*/
+                        
+                        //Check for Error in executed process
+                        if (status != 0)
+                        {
+                            fprintf(stderr,"ERROR: Process failed with status %d\n", status);
+                        } 
                     }
-                    close(iofd[0]);
-                    close(iofd[1]);
-                }
-
-                //Wait for the child if not a background process, or if it is the end of the pipeline
-                if (!isAM)
-                {
-                    waitpid(pid, &status, 0);
-                    
-                    //Check for Error in executed process
-                    if (status != 0)
+                    else
                     {
-                        fprintf(stderr,"ERROR: Process failed with status %d\n", status);
-                    } 
+                        //Displays the backgroundNum and PID of the background process
+                        printf("[%d] %d\n", ++backgroundNum, pid);
+                    }     
+                }
+                else if (pid == 0)
+                {
+                    /*..........CHILDREN..........*/
+                    //Redirect STDIN if < character was used
+                    fprintf(stderr,"pid is : %d and ppid is: %d\n", getpid(), getppid());
+                    if (isLT)
+                    {
+                        if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
+                        {
+                            iofd[0] = open(inFilename, O_RDONLY);
+                            close(STDIN);
+                            dup2(iofd[0], STDIN);
+                            close(iofd[0]);
+                        } 
+                    }
+                    //Redirect STDOUT if > character was used
+                    if (isGT)
+                    {
+                        if ((isVB && currentPipeNum == pipeNum) || (!isVB)) //checks for piping conditons
+                        {
+                            iofd[1] = open(outFilename, O_WRONLY);
+                            close(STDOUT);
+                            dup2(iofd[1], STDOUT);
+                            close(iofd[1]);  
+                        }
+                    }
+                    //Pipe if VB was used
+                    if (isVB)
+                    {
+                        //PIPES STDIN from prev command, if this is the second or later command
+                        if(currentPipeNum > 0)
+                        {
+                            fprintf(stderr,"stdin piped\n");
+                            
+                            if (close(pipefd[currentPipeNum-1][1]))                 //Closes the write end of the pipe for this child process
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }
+                            if(close(STDIN))                                        //Closes STDIN for this child process
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }                                  
+                            if (dup2(pipefd[currentPipeNum-1][0], STDIN) == -1)     //Duplicates the read pipe onto STDIN for this child process
+                            {
+                                perror("ERROR: duplicating file descriptor failed: ");
+                            }      
+                            if(close(pipefd[currentPipeNum-1][0]))                  //Closes the read pipe for this child process
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }             
+                        }
+                        
+                        //PIPES STDOUT to next command, if there is a next pipe
+                        if (currentPipeNum < pipeNum)
+                        {
+                            fprintf(stderr,"stdout piped\n");
+                            
+                            if (close(pipefd[currentPipeNum][0]))                   //Closes the read end of the pipe for this child
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }           
+                            if(close(STDOUT))                                       //Closes STDOUT for this child process
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }                                  
+                            if (dup2(pipefd[currentPipeNum][1], STDOUT) == -1)      //Duplicates the write pipe onto STDOUT for this child process
+                            {
+                                perror("ERROR: duplicating file descriptor failed: ");
+                            }      
+                            if(close(pipefd[currentPipeNum][1]))                    //Closes the write pipe for this child process
+                            {
+                                perror("ERROR: closing file descriptor failed: ");
+                            }                     
+                        }
+                    }
+                    //Finally execute
+                    int execError = execvp(parametersPointer[currentPipeNum][0], parametersPointer[currentPipeNum]);
+                    if(execError)
+                    {
+                        perror("ERROR: Execution failed due to: ");
+                    }    
                 }
                 else
                 {
-                    //Displays the backgroundNum and PID of the background process
-                    printf("[%d] %d\n", ++backgroundNum, pid);
-                }     
-            }
-            else
-            {
-                /*..........CHILD..........*/
-                //Redirect STDIN if < character was used
-
-                if (isLT)
-                {
-                    if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
-                    {
-                        iofd[0] = open(inFilename, O_RDONLY);
-                        close(STDIN);
-                        dup2(iofd[0], STDIN);
-                        close(iofd[0]);
-                    } 
+                    fprintf(stderr, "ERROR: fork failed\n");
+                    break;
                 }
-                //Redirect STDOUT if > character was used
-                if (isGT)
-                {
-                    if ((isVB && currentPipeNum == pipeNum) || (!isVB)) //checks for piping conditons
-                    {
-                        iofd[1] = open(outFilename, O_WRONLY);
-                        close(STDOUT);
-                        dup2(iofd[1], STDOUT);
-                        close(iofd[1]);  
-                    }
-                }
-                //Pipe if VB was used
-                if (isVB)
-                {
-                    //PIPES STDIN from prev command, if this is the second or later command
-                    if(currentPipeNum > 0)
-                    {
-                        printf("stdin piped\n");
-                        close(pipefd[currentPipeNum-1][1]);
-                        close(STDIN);
-                        dup2(pipefd[currentPipeNum-1][0], STDIN);
-                        close(pipefd[currentPipeNum-1][0]);
-                    }
-                    
-                    //PIPES STDOUT to next command, if there is a next pipe
-                    if (currentPipeNum != pipeNum)
-                    {
-                        printf("stdout piped\n");
-                        close(pipefd[currentPipeNum][0]);
-                        close(STDOUT);
-                        dup2(pipefd[currentPipeNum][1], STDOUT);
-                        close(pipefd[currentPipeNum][1]);
-                    }
-                }
-                //Finally execute
-                execvp(parametersPointer[currentPipeNum][0], parametersPointer[currentPipeNum]);
             }
         } 
     }
