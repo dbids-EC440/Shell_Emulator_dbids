@@ -32,6 +32,12 @@ void zombieHandler(int sig, siginfo_t *info, void *ucontext)
     waitpid(-1, &wstatus, WNOHANG);
 }
 
+//Basic check to see if character is a meta char
+int isNotMeta(char input)
+{
+    return (input != '&' && input != '|' && input != '<' && input != '>');
+}
+
 //Just a maximum function for an array of ints.  Used for space variable below.
 int largest(int arr[], int n) 
 { 
@@ -200,6 +206,7 @@ int main(int argc, char *argv[])
 
         //The output parameters are stored in the variable tempstr
         char tempstr[pipeNum+1][maxSpace+2][TOKEN_SIZE];
+        currentPipeNum = 0;
 
         if (!isAM && !isVB && !isGT && !isLT)
         {
@@ -222,9 +229,10 @@ int main(int argc, char *argv[])
         {
             //Splitting of line until meta-char
             lNum = 0;
-            while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
+            /*int i = 0;
+            while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')*/
+            for (int i = 0; isNotMeta(line[lNum]); i++)
             {
-                int i = 0;
                 int tNum = 0;
                 while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
                 && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
@@ -235,7 +243,7 @@ int main(int argc, char *argv[])
                 }
                 tempstr[0][i][tNum] = '\0';
                 if (line[lNum] == ' ') lNum++;
-                i++;
+                //i++;
             }
 
             //Then deal with each meta-char
@@ -268,8 +276,9 @@ int main(int argc, char *argv[])
                         lNum++;
 
                     //Continue to split the line until the a meta char or 
-                    int i = 0;
-                    while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')
+                    /*int i = 0;
+                    while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')*/
+                    for (int i = 0; isNotMeta(line[lNum]) && line[lNum] != '\n'; i++)
                     {
                         int tNum = 0;
                         while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
@@ -281,7 +290,7 @@ int main(int argc, char *argv[])
                         }
                         tempstr[currentPipeNum][i][tNum] = '\0';
                         if (line[lNum] == ' ') lNum++;
-                        i++;
+                        //i++;
                     }
 
                     //Then check for more meta characters
@@ -387,7 +396,7 @@ int main(int argc, char *argv[])
         //Pipe and check for piping erros
         for (int i = 0; i < pipeNum; i++)
         {
-            int pipeReturn = pipe2(&pipefd[i][0], O_CLOEXEC);
+            int pipeReturn = pipe(&pipefd[i][0]); /*pipe2(&pipefd[i][0], O_CLOEXEC);*/
             if (pipeReturn)
             {
                 perror("Error in pipe(): ");
@@ -399,12 +408,8 @@ int main(int argc, char *argv[])
         const pid_t ogParentPid = getpid(); //get the pid of the original parent process
         for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++)
         {
-            fprintf(stderr, "currentPipeNum: %d \n", currentPipeNum);
-
             if (getpid() == ogParentPid) //To prevent the child from forking to create a child of itself
             {
-                fprintf(stderr, "Parent PID: %d\n",ogParentPid);
-                fprintf(stderr, "Parent PID: %d\n",getpid());
                 pid = fork();
                 if (pid > 0)
                 {
@@ -412,24 +417,24 @@ int main(int argc, char *argv[])
                     //Associates the SIGCHILD signal with the given handler
                     sigaction(SIGCHLD, &act, NULL);
 
-                    fprintf(stderr, "Parent PID: %d\n", getpid());
-
                     //Wait for the child if not a background process, or if it is the end of the pipeline
                     if (!isAM)
                     {
-                        waitpid(-1, &status, 0);
-                        
-                        if (currentPipeNum > 0)
+                        //Once all children have launched close all file descriptors
+                        /*if (currentPipeNum == pipeNum)
                         {
-                            close(pipefd[currentPipeNum-1][0]);
-                            close(pipefd[currentPipeNum-1][1]);
-                        }
-                            
-                        fprintf(stderr, "%d\n", pid);
-                        /*if (fork() == 0)
+                            for (int i = 0; i < pipeNum; i++)
+                            {
+                                close(pipefd[i][0]);
+                                close(pipefd[i][1]);
+                            }
+                        }*/
+
+                        //Close file descriptors aggressively as we go
+                        /*if (currentPipeNum < pipeNum)
                         {
-                            char* tp[TOKEN_SIZE] = {"ps", "-u"};
-                            execvp("ps", tp);
+                            close(pipefd[currentPipeNum][0]);
+                            close(pipefd[currentPipeNum][1]);
                         }*/
                         
                         //Check for Error in executed process
@@ -448,7 +453,6 @@ int main(int argc, char *argv[])
                 {
                     /*..........CHILDREN..........*/
                     //Redirect STDIN if < character was used
-                    fprintf(stderr,"pid is : %d and ppid is: %d\n", getpid(), getppid());
                     if (isLT)
                     {
                         if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
@@ -476,7 +480,7 @@ int main(int argc, char *argv[])
                         //PIPES STDIN from prev command, if this is the second or later command
                         if(currentPipeNum > 0)
                         {
-                            fprintf(stderr,"stdin piped\n");
+                            //fprintf(stderr,"stdin piped\n");
                             
                             if (close(pipefd[currentPipeNum-1][1]))                 //Closes the write end of the pipe for this child process
                             {
@@ -499,7 +503,7 @@ int main(int argc, char *argv[])
                         //PIPES STDOUT to next command, if there is a next pipe
                         if (currentPipeNum < pipeNum)
                         {
-                            fprintf(stderr,"stdout piped\n");
+                            //fprintf(stderr,"stdout piped\n");
                             
                             if (close(pipefd[currentPipeNum][0]))                   //Closes the read end of the pipe for this child
                             {
@@ -528,11 +532,28 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    fprintf(stderr, "ERROR: fork failed\n");
+                    perror("ERROR: fork failed due to: ");
                     break;
                 }
+
+                //Close each pipe after the last child that needed it has finished
+                if(currentPipeNum > 0)
+                {
+                    close(pipefd[currentPipeNum - 1][0]);
+                    close(pipefd[currentPipeNum - 1][1]);
+                }
             }
-        } 
+        }
+
+        /*for (int i = 0; i < pipeNum; i++)
+        {
+            close(pipefd[i][0]);
+            close(pipefd[i][1]);
+        }*/
+
+        //Wait for each child process outside of the loop so as to allow children to run in parallel
+        for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++) 
+            waitpid(-1, &status, 0);
     }
     //Free the dynamic memory
     if (!firstIteration)
