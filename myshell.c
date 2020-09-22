@@ -53,17 +53,17 @@ int largest(int arr[], int n)
 int main(int argc, char *argv[])  
 {
     //Declare parameters initially
-    char line[INPUT_SIZE];
-    bool firstIteration = true;
-    bool endShell = false;
-    char*** parametersPointer = NULL;
-    char inFilename[TOKEN_SIZE];
-    char outFilename[TOKEN_SIZE];
+    char line[INPUT_SIZE];                      //where the read command stores the users input
+    bool firstIteration = true;                 //is true for the first iteration of the while(TRUE) loop below
+    char*** parametersPointer = NULL;           //used to dynamically store the split-up parameters and commands that the user entered
+    char inFilename[TOKEN_SIZE];                //used to store the name of the file which the first command will take input from
+    char outFilename[TOKEN_SIZE];               //used to store the name of the file which the last command will output to
     int space[INPUT_SIZE / 2];                  //counts the number of spaces (and in turn arguments) for each command (possibly multiple due to pipe)
     int lNum = 0;                               //iterates through the line
     int pipeNum = 0;                            //counts the number of pipes
     int currentPipeNum = 0;                     //iterate through the pipes
-    bool throwError = false;
+    bool throwError = false;                    //set to true when error is found to avoid command execution
+    int backgroundNum = 0;                      //This counts the number of background processes since myshells inception
 
     //These are bools that I use to detect presence of the meta characters
     bool isLT = false; //detects <
@@ -75,8 +75,7 @@ int main(int argc, char *argv[])
     struct sigaction act = { 0 };
     act.sa_sigaction = &zombieHandler;  //calls the zombieHandler function for SIGCHLD
     act.sa_flags = SA_SIGINFO;
-    int backgroundNum = 0;              //This counts the number of background processes since myshells inception
-
+    
     //Loop for shell
     while (TRUE)
     {
@@ -97,7 +96,7 @@ int main(int argc, char *argv[])
 
         /*.......................READ.LINE.......................*/
         //Read the line
-        memset(line, 0, INPUT_SIZE);                        //clears the line
+        memset(line, 0, INPUT_SIZE);                            //clears the line
         int commandBytes = read(STDIN, line, INPUT_SIZE);
 
         //Check for ctrl+D input
@@ -227,8 +226,6 @@ int main(int argc, char *argv[])
         {
             //Splitting of line until meta-char
             lNum = 0;
-            /*int i = 0;
-            while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')*/
             for (int i = 0; isNotMeta(line[lNum]); i++)
             {
                 int tNum = 0;
@@ -248,7 +245,6 @@ int main(int argc, char *argv[])
             bool moreMeta = true;
             int fNum = 0;
             char currentMeta = '>';
-            char oppositeMeta = '<';
             char* currentFilename[TOKEN_SIZE];
             while(moreMeta)
             {
@@ -262,21 +258,20 @@ int main(int argc, char *argv[])
                     if (line[lNum] == '|')
                     {
                         lNum++;
+                    }
+                    while (line[lNum] == ' ' || line[lNum] == '|')  
+                    {
                         if (line[lNum] == '|')
                         {
-                            write(STDERR, "ERROR: Cannot place two pipe characters in succession\n", 56);
+                            write(STDERR, "ERROR: Cannot place pipe characters in succession\n", 56);
                             throwError = true;
                             break;
                         }
-                    }
-
-                    while (line[lNum] == ' ') 
                         lNum++;
-
-                    //Continue to split the line until the a meta char or 
-                    /*int i = 0;
-                    while (line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>' && line[lNum] != '\n')*/
-                    for (int i = 0; isNotMeta(line[lNum]) && line[lNum] != '\n'; i++)
+                    }
+                        
+                    //Continue to split the line until the a meta char
+                    for (int i = 0; isNotMeta(line[lNum]) && (line[lNum] != '\n'); i++)
                     {
                         int tNum = 0;
                         while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
@@ -288,7 +283,6 @@ int main(int argc, char *argv[])
                         }
                         tempstr[currentPipeNum][i][tNum] = '\0';
                         if (line[lNum] == ' ') lNum++;
-                        //i++;
                     }
 
                     //Then check for more meta characters
@@ -309,13 +303,11 @@ int main(int argc, char *argv[])
                     if (line[lNum] == '<')
                     {
                         currentMeta = '<';
-                        oppositeMeta = '>';
                         *currentFilename = inFilename;
                     }
                     else
                     {
                         currentMeta = '>';
-                        oppositeMeta = '<';
                         *currentFilename = outFilename;
                     }
                 
@@ -386,10 +378,9 @@ int main(int argc, char *argv[])
 
         /*.......................FORK.......................*/
         //Establish variables common to the parent and child
-        currentPipeNum = 0;
-        int status;
-        int iofd[2];
-        int pipefd[pipeNum][2];
+        int status;                             //Used to show the status after a given command
+        int iofd[2];                            //Used as the input/output file descriptors
+        int pipefd[pipeNum][2];                 //Used as the file descriptors for each of the pipes
         
         //Pipe and check for piping erros
         for (int i = 0; i < pipeNum; i++)
@@ -412,29 +403,12 @@ int main(int argc, char *argv[])
                 if (pid > 0)
                 {
                     /*..........PARENT..........*/ 
-                    //Associates the SIGCHILD signal with the given handler
+                    //Associates the SIGCHLD signal with the given handler
                     sigaction(SIGCHLD, &act, NULL);
 
                     //Wait for the child if not a background process, or if it is the end of the pipeline
                     if (!isAM)
                     {
-                        //Once all children have launched close all file descriptors
-                        /*if (currentPipeNum == pipeNum)
-                        {
-                            for (int i = 0; i < pipeNum; i++)
-                            {
-                                close(pipefd[i][0]);
-                                close(pipefd[i][1]);
-                            }
-                        }*/
-
-                        //Close file descriptors aggressively as we go
-                        /*if (currentPipeNum < pipeNum)
-                        {
-                            close(pipefd[currentPipeNum][0]);
-                            close(pipefd[currentPipeNum][1]);
-                        }*/
-                        
                         //Check for Error in executed process
                         if (status != 0)
                         {
@@ -453,23 +427,23 @@ int main(int argc, char *argv[])
                     //Redirect STDIN if < character was used
                     if (isLT)
                     {
-                        if ((isVB && currentPipeNum == 0) || (!isVB)) //checks for piping conditions
+                        if ((isVB && currentPipeNum == 0) || (!isVB))
                         {
-                            iofd[0] = open(inFilename, O_RDONLY);
-                            close(STDIN);
-                            dup2(iofd[0], STDIN);
-                            close(iofd[0]);
+                            iofd[0] = open(inFilename, O_RDONLY);       //Opens the given file as read only
+                            close(STDIN);                               //Closes STDIN for this child process
+                            dup2(iofd[0], STDIN);                       //Duplicates the read fd onto STDIN for this child process
+                            close(iofd[0]);                             //Closes the read fd
                         } 
                     }
                     //Redirect STDOUT if > character was used
                     if (isGT)
                     {
-                        if ((isVB && currentPipeNum == pipeNum) || (!isVB)) //checks for piping conditons
+                        if ((isVB && currentPipeNum == pipeNum) || (!isVB))
                         {
-                            iofd[1] = open(outFilename, O_WRONLY);
-                            close(STDOUT);
-                            dup2(iofd[1], STDOUT);
-                            close(iofd[1]);  
+                            iofd[1] = open(outFilename, O_WRONLY);      //Opens the given file as write only
+                            close(STDOUT);                              //Closes STDOUT for this child process
+                            dup2(iofd[1], STDOUT);                      //Duplicates the write fd onto STDOUT for this child process
+                            close(iofd[1]);                             //Closes the write fd
                         }
                     }
                     //Pipe if VB was used
@@ -542,12 +516,6 @@ int main(int argc, char *argv[])
                 }
             }
         }
-
-        /*for (int i = 0; i < pipeNum; i++)
-        {
-            close(pipefd[i][0]);
-            close(pipefd[i][1]);
-        }*/
 
         //Wait for each child process outside of the loop so as to allow children to run in parallel
         if (!isAM)
