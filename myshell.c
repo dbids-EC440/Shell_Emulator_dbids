@@ -111,8 +111,6 @@ int main(int argc, char *argv[])
         //Checks for invalid read which tends to happen with background processes
         else if (commandBytes < 0)
         {
-            /*int c; 
-            while((c = getchar()) != '\n' && c != EOF); */
             read(STDIN, line, INPUT_SIZE);
         }
 
@@ -552,8 +550,9 @@ int main(int argc, char *argv[])
         }*/
 
         //Wait for each child process outside of the loop so as to allow children to run in parallel
-        for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++) 
-            waitpid(-1, &status, 0);
+        if (!isAM)
+            for (currentPipeNum = 0; (currentPipeNum <= pipeNum) && !throwError; currentPipeNum++) 
+                waitpid(-1, &status, 0);
     }
     //Free the dynamic memory
     if (!firstIteration)
