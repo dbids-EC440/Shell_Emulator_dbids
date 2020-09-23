@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
                     fNum = 0;
                     memset(*currentFilename, 0, TOKEN_SIZE);
                     while (line[lNum] != '\0' && line[lNum] != ' ' && line[lNum] != '\n'
-                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != oppositeMeta)
+                    && line[lNum] != '&' && line[lNum] != '|' && line[lNum] != '<' && line[lNum] != '>')
                     {
                         *(*(currentFilename)+fNum) = *(line+lNum);
                         lNum++;
