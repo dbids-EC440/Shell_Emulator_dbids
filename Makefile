@@ -1,4 +1,4 @@
-GCC = gcc -g -Werror -std=c99
+GCC = gcc -g -Werror -std=c99 -Wall
 
 OBJS = myshell
 

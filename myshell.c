@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
     bool isAM = false; //detects &
 
     //Initialize the action that is taken when the parent recieves SIGCHLD
-    struct sigaction act = { 0 };
+    struct sigaction act;
     act.sa_sigaction = &zombieHandler;  //calls the zombieHandler function for SIGCHLD
     act.sa_flags = SA_SIGINFO;
     
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
         //Prompts the user with the shell statement
         if (argc == 1)
         {
-            int writeBytes = write(STDOUT, "myshell$", 8);
+        	write(STDOUT, "myshell$", 8);
         }
         //Error checks the command line arguments passed when invoking the shell
         else if (strcmp(argv[1], "-n") && (argv+2) != NULL)
@@ -238,7 +238,6 @@ int main(int argc, char *argv[])
                 }
                 tempstr[0][i][tNum] = '\0';
                 if (line[lNum] == ' ') lNum++;
-                //i++;
             }
 
             //Then deal with each meta-char
