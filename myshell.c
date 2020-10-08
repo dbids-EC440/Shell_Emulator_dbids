@@ -428,7 +428,7 @@ int main(int argc, char *argv[])
                     {
                         if ((isVB && currentPipeNum == 0) || (!isVB))
                         {
-                            iofd[0] = open(inFilename, O_RDONLY);       //Opens the given file as read only
+                            iofd[0] = open(inFilename, (O_RDONLY|O_CREAT));       //Opens the given file as read only
                             close(STDIN);                               //Closes STDIN for this child process
                             dup2(iofd[0], STDIN);                       //Duplicates the read fd onto STDIN for this child process
                             close(iofd[0]);                             //Closes the read fd
@@ -439,7 +439,7 @@ int main(int argc, char *argv[])
                     {
                         if ((isVB && currentPipeNum == pipeNum) || (!isVB))
                         {
-                            iofd[1] = open(outFilename, O_WRONLY);      //Opens the given file as write only
+                            iofd[1] = open(outFilename, (O_WRONLY|O_CREAT));      //Opens the given file as write only
                             close(STDOUT);                              //Closes STDOUT for this child process
                             dup2(iofd[1], STDOUT);                      //Duplicates the write fd onto STDOUT for this child process
                             close(iofd[1]);                             //Closes the write fd
